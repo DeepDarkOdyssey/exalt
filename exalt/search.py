@@ -1,7 +1,7 @@
 from typing import Iterable, Union, List, TypeVar
 import re
 
-Node = TypeVar('Node')
+Node = TypeVar("TrieNode")
 
 
 class TrieNode(object):
@@ -14,7 +14,7 @@ class TrieNode(object):
     def is_leaf(self):
         return len(self.next) == 0
 
-    def insert(self, word: Iterable[str]):
+    def insert(self, word: str):
         node = self
         for char in word:
             if char not in node.next:
@@ -41,10 +41,10 @@ class TrieNode(object):
         nodes = []
         node = self
         for char in target:
-            nodes.append(node)
             if char not in node.next:
                 return False
             node = node.next[char]
+            nodes.append(node)
         node = nodes.pop(-1)
         if not node.is_word:
             return False
@@ -61,89 +61,72 @@ class TrieNode(object):
                 removed_word.insert(nodes[-1].next.pop(node.key).key)
         return removed_word
 
-    @staticmethod
-    def show(node: Node, word: str = ''):
-        if node.is_word:
+    def show(self, word: str = ""):
+        if self.is_word:
             print(word)
+        
+        for node in self.next.values():
+            node.show(word + node.key)
 
-        for key, node in node.next.items():
-            TrieNode.show(node, word + key)
-
-    def show_tree(self, prefix: str = ''):
-        # for i, (word, node) in enumerate(self.next.items()):
-        #     print(prefix + '+-- ' + word)
-        #     if i == len(self.next) - 1:
-        #         node.show_tree(prefix=prefix + '    ')
-        #     else:
-        #         node.show_tree(prefix=prefix + '|   ')
-        node = self
-        print(node.key)
-        for node in node.next:
-            print(node)
-    
-    def __repr__(self):
-        repr_string = f'{self.key}'
-        if not self.is_leaf:
-            for i, node in enumerate(self.next):
-                if i == 0:
-                    repr_string += f' ┳━━━━ {node}\n'
-                elif i == len(self.next) - 1:
-                    repr_string += f'  ┗━━━━ {node}\n'
-                else:
-                    repr_string += f'  ┣━━━━ {node}\n'
-        return repr_string
 
 class ACNode(TrieNode):
-    def __init__(self, depth: int = 0):
-        super().__init__()
+    def __init__(self, key: str = '', depth: int = 0):
+        super().__init__(key)
         self.depth = depth
+        self.fail = None
 
-    def insert(self, words: Union[List[str], str]):
-        current_node = self
-        for word in words:
-            if word not in current_node.children:
-                current_node.children[word] = ACNode(current_node.depth + 1)
-            current_node = current_node.children[word]
-        current_node.is_leaf = True
+    def insert(self, word: str):
+        curr = self
+        for char in word:
+            if char not in curr.next:
+                curr.next[char] = ACNode(char, curr.depth+1)
+            curr = curr.next[char]
+        curr.is_word = True
 
 
-class ACAutomation(object):
-    def __init__(self, words_list: Union[List[str], List[List[str]]]):
+class ACAutomaton(object):
+    def __init__(self, words: Iterable[str]):
         self.root = ACNode()
-        for words in words_list:
-            self.root.insert(words)
-        for node in self.root.children.values():
-            node.fail = self.root
+        self.root.insert_many(words)
         self.add_fails()
 
     def add_fails(self):
-        queue = list(self.root.children.values())
+        queue = []
+        for node in self.root.next.values():
+            node.fail = self.root
+            queue.append(node)
+
         while len(queue) > 0:
-            node = queue.pop(0)
-            for word, child in node.children.items():
-                fail_to = node.fail
+            curr: ACNode = queue.pop(0)
+            fail_to = curr.fail
+            for key, node in curr.next.items():
                 while True:
-                    if word in fail_to.children:
-                        child.fail = fail_to.children[word]
+                    if fail_to is not None and key in fail_to.next:
+                        node.fail = fail_to.next[key]
                         break
-                    elif fail_to is self.root:
-                        child.fail = self.root
+                    elif fail_to is None:
+                        node.fail = self.root
                         break
                     else:
                         fail_to = fail_to.fail
-                queue.append(child)
+                queue.append(node)
 
-    def search(self, source: Union[str, List[str]]):
+    def search(self, target: str):
         result = []
-        t_pointer = self.root
-        for s_pointer in range(len(source)):
-            word = source[s_pointer]
-            while (t_pointer.fail is not None) and (word not in t_pointer.children):
-                t_pointer = t_pointer.fail
-            if word in t_pointer.children:
-                t_pointer = t_pointer.children[word]
-            if t_pointer.is_leaf:
-                result.append((s_pointer - t_pointer.depth + 1, s_pointer))
+        curr = self.root
+        for i, char in enumerate(target):
+            if char in curr.next:
+                node = curr.next[char]
+                if node.is_word:
+                    result.append((i - node.depth+1, i))
+                elif node.fail.is_word:
+                    result.append((i - node.fail.depth+1, i))
+                curr = node
+            else:
+                if curr.fail is None:
+                    curr = self.root
+                else:
+                    curr = curr.fail
         return result
 
 
@@ -188,12 +171,18 @@ class KMP(object):
 
 
 if __name__ == "__main__":
-    words = "banana bananas bandana band apple all beast".split()
-    root = TrieNode()
-    root.insert_many(words)
-    print(repr(root.next['b']))
+    # words = "banana bananas bandana band apple all beast".split()
+    # root = TrieNode()
+    # root.insert_many(words)
+    # root.show()
     # root.show_tree()
-    # TrieNode.show(root)
     # print('*' * 50)
     # root.delete('bandana')
-    # TrieNode.show(root)
+    # root.show()
+    words = ['abd', 'abdk', 'abchijn', 'chnit', 'ijabdf', 'ijaij']
+    automaton = ACAutomaton(words)
+    # automaton.root.show()
+    target = 'abchnijabdfk'
+    for start, end in automaton.search(target):
+        print(target[start: end + 1])
+    
