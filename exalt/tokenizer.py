@@ -22,25 +22,23 @@ class SepTokenizer(object):
 class ScriptTokenizer(object):
     def __init__(self):
         # Get local cache directory
-        cache_dir = Path('~/.cache').mkdir( exist_ok=True)
+        cache_dir: Path = Path.home().joinpath(".cache", "exalt")
+        cache_dir.mkdir(exist_ok=True)
 
         # Get unicode scripts original file
-        scripts_file = Path(join(cache_dir, 'unicode_scripts.txt'))
+        scripts_file = cache_dir.joinpath("unicode_scripts.txt")
         if not scripts_file.exists():
-            print('No cached unicode scipts found, downloading from the Internet...')
+            print("No cached unicode scipts found, downloading from the Internet...")
             r = requests.get("http://www.unicode.org/Public/UNIDATA/Scripts.txt")
-            with open(scripts_file, 'wb') as f:
+            with open(scripts_file, "wb") as f:
                 f.write(r.content)
-                print(f'Unicode scripts file has been cached to {scripts_file}')
+                print(f"Unicode scripts file has been cached to {scripts_file}")
+        self.scripts = self.parse_unicode_scripts(scripts_file)
 
-    def parse_unicode_scripts():
-        UNICODE_SCRIPTS_URI = join(dirname(__file__), "assets/Scripts.txt")
+    @staticmethod
+    def parse_unicode_scripts(file_path):
         result = {}
-        with tempfile.NamedTemporaryFile(
-            suffix=".cache", prefix="unicode_scripts", dir="~/.cache", delete=False
-        ) as f:
-            r = requests.get("http://www.unicode.org/Public/UNIDATA/Scripts.txt")
-
+        with open(file_path) as f:
             for line in f:
                 if not line.startswith(("#", "\n")):
                     line = line.rstrip()
@@ -62,8 +60,22 @@ class ScriptTokenizer(object):
                             "gc": general_category,
                         }
         return result
+    
+    def tokenize(self, text: str) -> List[str]:
+        script_properties = [tuple(self.scripts[ord(char)].values()) for char in text]
+        seps = map(lambda x: x[0]!=x[1], zip(script_properties[:-1], script_properties[1:]))
+        tokens, token = [], []
+        for i, sep in enumerate(seps):
+            token.append(text[i])
+            if sep:
+                tokens.append(''.join(token))
+                token = []
+        token.append(text[-1])
+        tokens.append(''.join(token))
+        return tokens
+
 
 
 if __name__ == "__main__":
     tokenizer = ScriptTokenizer()
-
+    print(tokenizer.tokenize('我I 爱love 你you'))
