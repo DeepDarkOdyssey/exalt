@@ -1,0 +1,60 @@
+# REF: https://arxiv.org/abs/1902.08850
+
+from ..vocab import BaseVocab, Tokenizer
+from sklearn.cluster import k_means
+from typing import Optional, Tuple
+import numpy as np
+import pickle
+
+
+class VLAWE(object):
+    def __init__(self, k: int = 10, alpha: float = 0.5):
+        self.k = k
+        self.alpha = alpha
+        self.centroids, self.labels = None, None
+
+    def build_kmeans(self, vocab: BaseVocab, save_to: Optional[str] = None):
+        self.centroids, self.labels, _ = k_means(vocab.embedding_matrix, self.k)
+        if not save_to is None:
+            with open(save_to, "wb") as f:
+                pickle.dump({"centroids": self.centroids, "labels": self.labels}, f)
+
+    def load_kmeans(self, load_from: str):
+        with open(load_from, "rb") as f:
+            kmeans = pickle.load(f)
+        num_centroids = len(kmeans["centroids"])
+        if num_centroids != self.k:
+            raise ValueError(
+                f"Trying to load {num_centroids} centroids while current model "
+                f"is initialized with k equals to {self.k}"
+            )
+        self.centroids = kmeans["centroids"]
+        self.labels = kmeans["labels"]
+
+    def encode_text(
+        self, text: str, vocab: BaseVocab, tokenizer: Tokenizer
+    ) -> np.ndarray:
+        if self.centroids is None or self.labels is None:
+            raise ValueError(
+                "Model hasn't been initialized. Please call `build_kmeans` "
+                "or `load_kmeans` method"
+            )
+        tokens = tokenizer(text)
+        token_indexes = vocab.tokens2indexes(tokens)
+        token_id_set = set(token_indexes)
+        if vocab.unk and (vocab.token2id[vocab.unk] in token_id_set):
+            token_id_set.remove(vocab.token2id[vocab.unk])
+        if vocab.pad and (vocab.token2id[vocab.pad] in token_id_set):
+            token_id_set.remove(vocab.token2id[vocab.pad])
+
+        res_vecs = []
+        for i in range(len(self.centroids)):
+            vecs = vocab.embedding_matrix[
+                [token_id for token_id in token_id_set if self.labels[token_id] == i]
+            ]
+            res_vec = np.sum(vecs - self.centroids[i], axis=0)
+            res_vecs.append(res_vec)
+        text_embed = np.hstack(res_vecs)
+        text_embed = np.sign(text_embed) * (np.abs(text_embed) ** self.alpha)
+        text_embed = text_embed / np.linalg.norm(text_embed)
+        return text_embed
