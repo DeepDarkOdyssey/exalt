@@ -1,5 +1,5 @@
 from typing import Iterable, Union, List, TypeVar
-from copy import copy
+from collections import OrderedDict
 import re
 
 Node = TypeVar("TrieNode")
@@ -119,12 +119,9 @@ class ACAutomaton(object):
         while i < len(target):
             char = target[i]
             if char in curr.next:
-                node = curr.next[char]
-                if node.is_word:
-                    result.append((i - node.depth + 1, i))
-                elif node.fail.is_word:
-                    result.append((i - node.fail.depth + 1, i))
-                curr = node
+                curr = curr.next[char]
+                if curr.is_word:
+                    result.append((i - curr.depth + 1, i))
                 i += 1
             else:
                 if curr.fail is None:
@@ -134,31 +131,57 @@ class ACAutomaton(object):
                     curr = curr.fail
         return result
 
-    def skip_search(self, target: str, skip_pattern:str='\s', max_skip=3):
+
+class FuzzyACAutomaton(ACAutomaton):
+    def __init__(self, words):
+        super().__init__(words)
+        self.wildcard = WildcardACNode()
+
+    def search(self, target: str, skip_pattern:str='\s', max_skip:int=2):
         result = []
         curr = self.root
-        i = 0
         num_skips = 0
+        i = 0
         while i < len(target):
+            should_fail = True
             char = target[i]
-            if num_skips > max_skip:
-                num_skips = 0
-                curr = self.root
-            if re.match(skip_pattern, char):
-                num_skips += 1
+            if char in curr.next:
+                should_fail = False
+                curr = curr.next[char]
+                assert target[i] == curr.key
+                if curr.is_word:
+                    result.append((i - curr.depth -num_skips + 1, i))
+                    num_skips = 0
                 i += 1
-            elif char in curr.next:
-                node = curr.next[char]
-                if node.is_word:
-                    result.append((i - num_skips - node.depth + 1, i))
-                elif node.fail.is_word:
-                    result.append((i - num_skips - node.fail.depth + 1, i))
-                curr = node
-                i += 1
-            else:
+            elif curr.depth >=2:
+                previews = target[i+1: i+max_skip+1]
+                wildcard = {}
+                nodes = list(curr.next.values())
+                for _ in range(max_skip + 1):
+                    buffer = []
+                    for node in nodes:
+                        if node.key not in wildcard:
+                            wildcard[node.key] = node
+                            for k, n in node.next.items():
+                                if k not in wildcard:
+                                    buffer.append(n)
+                    nodes = buffer
+                for j, p in enumerate(previews):
+                    if p in wildcard:
+                        should_fail = False
+                        prev_depth = curr.depth
+                        curr = wildcard[p]
+                        num_skips = j + 2 - (curr.depth - prev_depth)
+                        i += j + 1
+                        assert target[i] == curr.key
+                        if curr.is_word:
+                            result.append((i - curr.depth + 1 - num_skips, i))
+                            num_skips = 0
+                        i += 1
+                        break
+            if should_fail:
                 if curr.fail is None:
                     curr = self.root
-                    num_skips = 0
                     i += 1
                 else:
                     curr = curr.fail
@@ -216,9 +239,13 @@ if __name__ == "__main__":
     # root.show()
     import time
     words = ["abd", "abdk", "abchijn", "chnit", "ijabdf", "ijaij"]
-    automaton = ACAutomaton(words)
+    automaton = FuzzyACAutomaton(words)
+    # automaton = ACAutomaton(words)
     # automaton.root.show()
     target = "abchnijab dfk"
-    for start, end in automaton.skip_search(target):
+    tick = time.time()
+    for start, end in automaton.search(target):
         print(target[start : end + 1])
+    tock = time.time()
+    print(f'{tock - tick:.4f}s')
 
