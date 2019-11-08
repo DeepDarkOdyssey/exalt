@@ -133,14 +133,17 @@ class ACAutomaton(object):
 
 
 class FuzzyACAutomaton(ACAutomaton):
-    def __init__(self, words):
-        super().__init__(words)
-        self.wildcard = WildcardACNode()
+    def __init__(self, words: Iterable[str], verbose=False):
+        super().__init__(words, None)
+        self.verbose = verbose
 
-    def search(self, target: str, skip_pattern:str='\s', max_skip:int=2):
+    def search(self, target: str, max_skip: int = 2):
         result = []
         curr = self.root
-        num_skips = 0
+        matched_chars = []
+        num_chars_skipped = []
+        num_depth_skipped = []
+
         i = 0
         while i < len(target):
             should_fail = True
@@ -149,12 +152,29 @@ class FuzzyACAutomaton(ACAutomaton):
                 should_fail = False
                 curr = curr.next[char]
                 assert target[i] == curr.key
+
+                matched_chars.append(char)
+                num_chars_skipped.append(0)
+                num_depth_skipped.append(0)
+
+                if self.verbose:
+                    print(f"id:{i}\tkey:{curr.key}\tdepth:{curr.depth}\tmatched_chars:{matched_chars}\tnum_chars_skipped:{num_chars_skipped}\tnum_depth_skipped:{num_depth_skipped}")
                 if curr.is_word:
-                    result.append((i - curr.depth -num_skips + 1, i))
-                    num_skips = 0
+                    if self.verbose:
+                        print('MATCHED!***********************')
+                    result.append(
+                        (
+                            i - len(matched_chars), i,
+                            "".join((node.key for node in curr.lineage[1:])),
+                        )
+                    )
+                    matched_chars.clear()
+                    num_chars_skipped.clear()
+                    num_depth_skipped.clear()
+
                 i += 1
-            elif curr.depth >=2:
-                previews = target[i+1: i+max_skip+1]
+            elif curr.depth >= 2:
+                previews = target[i : i + max_skip + 1]
                 wildcard = {}
                 nodes = list(curr.next.values())
                 for _ in range(max_skip + 1):
@@ -166,25 +186,63 @@ class FuzzyACAutomaton(ACAutomaton):
                                 if k not in wildcard:
                                     buffer.append(n)
                     nodes = buffer
+                preview_matched_chars = []
+                preview_num_chars_skipped = []
+                preview_num_depth_skipped = []
                 for j, p in enumerate(previews):
                     if p in wildcard:
                         should_fail = False
                         prev_depth = curr.depth
+                        i += j
                         curr = wildcard[p]
-                        num_skips = j + 2 - (curr.depth - prev_depth)
-                        i += j + 1
                         assert target[i] == curr.key
+
+                        preview_matched_chars.append(curr.key)
+                        preview_num_chars_skipped.append(0)
+                        preview_num_depth_skipped.append(curr.depth - prev_depth -1)
+
+                        if self.verbose:
+                            print(f"id:{i}\tkey:{curr.key}\tdepth:{curr.depth}\tmatched_chars:{matched_chars}\tnum_chars_skipped:{num_chars_skipped}\tnum_depth_skipped:{num_depth_skipped}")
                         if curr.is_word:
-                            result.append((i - curr.depth + 1 - num_skips, i))
-                            num_skips = 0
+                            if self.verbose:
+                                print('MATCHED!***********************')
+                                print(''.join([node.key for node in curr.lineage[1:]]))
+                            matched_chars.extend(preview_matched_chars)
+                            num_chars_skipped.extend(preview_num_chars_skipped)
+                            num_depth_skipped.extend(preview_num_depth_skipped)
+
+                            result.append(
+                                (
+                                    i - len(matched_chars), i,
+                                    "".join((node.key for node in curr.lineage[1:])),
+                                )
+                            )
+                            matched_chars.clear()
+                            num_chars_skipped.clear()
+                            num_depth_skipped.clear()
+                        
                         i += 1
                         break
+                    else:
+                        preview_matched_chars.append('')
+                        preview_num_chars_skipped.append(1)
+                        preview_num_depth_skipped.append(0)
+
             if should_fail:
-                if curr.fail is None:
+                if self.verbose:
+                    print(
+                        f"Match Failed\tchar:{char}\tnext:{list(curr.next.keys())}\tLineage:{[node.key for node in curr.lineage[1:]]}"
+                    )
+                curr = curr.fail
+                if curr is None or curr.is_root:
+                    if self.verbose:
+                        print("Restart matching!")
                     curr = self.root
+
+                    matched_chars.clear()
+                    num_chars_skipped.clear()
+                    num_depth_skipped.clear()
                     i += 1
-                else:
-                    curr = curr.fail
         return result
 
 
